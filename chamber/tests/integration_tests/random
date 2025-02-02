@@ -1,0 +1,85 @@
+
+
+    #[test]
+    #[expected_failure(abort_code = config::E_NOT_AUTHORIZED)]
+    fun test_unauthorized_config_change() {
+        let mut scenario = test::begin(TEST_ADMIN);
+        setup_protocol(&mut scenario);
+
+        // Create a new admin cap with a different address
+        test::next_tx(&mut scenario, ALICE);
+        {
+            let mut config = test::take_shared<Config>(&scenario);
+            // Create an unauthorized admin cap
+            let unauthorized_cap = config::create_admin_cap_for_testing(test::ctx(&mut scenario));
+            
+            // This should fail with NOT_AUTHORIZED error
+            config::add_or_update_validator(
+                &unauthorized_cap,
+                &mut config,
+                TEST_VALIDATOR,
+                true,
+                MAX_VALIDATOR_STAKE,
+                1000
+            );
+
+            test::return_shared(config);
+            transfer::public_transfer(unauthorized_cap, ALICE);
+        };
+        test::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_INSUFFICIENT_STAKE, location = chamber::stake)]
+    fun test_withdrawal_exceeds_balance() {
+        let scenario = test::begin(TEST_ADMIN);
+        setup_protocol(&mut scenario);
+
+        // First stake
+        test::next_tx(&mut scenario, ALICE);
+        {
+            let registry = test::take_shared<StakeRegistry>(&scenario);
+            let treasury = test::take_shared<Treasury>(&scenario);
+            let config = test::take_shared<Config>(&scenario);
+            let payment = coin::mint_for_testing<SUI>(VALID_STAKE, test::ctx(&mut scenario));
+            
+            stake::stake(
+                &mut registry,
+                &mut treasury,
+                &mut config,
+                TEST_VALIDATOR,
+                payment,
+                test::ctx(&mut scenario)
+            );
+
+            test::return_shared(registry);
+            test::return_shared(treasury);
+            test::return_shared(config);
+        };
+
+        // Try to withdraw more than staked
+        test::next_tx(&mut scenario, ALICE);
+        {
+            let registry = test::take_shared<StakeRegistry>(&scenario);
+            let treasury = test::take_shared<Treasury>(&scenario);
+            let config = test::take_shared<Config>(&scenario);
+            let stake_obj = test::take_from_sender<Stake>(&scenario);
+            
+            // Try to withdraw more than what was staked
+            let withdrawal_amount = VALID_STAKE * 2; // Double the staked amount
+            stake::withdraw(  // Changed function name to withdraw
+                &mut registry,
+                &mut treasury,
+                &config,
+                &stake_obj,
+                withdrawal_amount,
+                test::ctx(&mut scenario)
+            );
+
+            test::return_shared(registry);
+            test::return_shared(treasury);
+            test::return_shared(config);
+            test::return_to_sender(&scenario, stake_obj);
+        };
+        test::end(scenario);
+    }
